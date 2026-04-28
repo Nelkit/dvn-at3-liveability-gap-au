@@ -34,7 +34,7 @@ This is an academic project completed for the UTS Master of Data Science
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Nelkit/dvn-at3-liveability-gap-au
 cd dvn-at3-liveability-gap-au
 ```
 
