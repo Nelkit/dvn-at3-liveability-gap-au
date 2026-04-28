@@ -103,8 +103,16 @@ liveability-gap-au/
 
 ## Credits
 
-- **Student:** Nelkit Chavez Calona
+- **Group:** 8
+- **Students:**
+  - Nelkit Chavez
+  - Saurabh Sabharwal
+  - Nipun Mudgal
+  - Raunak Dhirajkumar Singh
+  - Shriram Gajanan Kulkarni
+  - Sheshan Munusamy Neelavathi
+  - Masaki
 - **Subject:** Data Visualisation and Narratives (DVN AT3)
 - **Institution:** University of Technology Sydney (UTS)
-- **Year:** 2025
+- **Year:** 2026
 - **Tools:** Python · Streamlit · Plotly · Pandas · NumPy
