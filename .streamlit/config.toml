@@ -1,0 +1,7 @@
+[theme]
+# Professional dark theme for the Liveability Gap data narrative
+primaryColor = "#E63946"
+backgroundColor = "#1A1A2E"
+secondaryBackgroundColor = "#16213E"
+textColor = "#EAEAEA"
+font = "sans serif"
