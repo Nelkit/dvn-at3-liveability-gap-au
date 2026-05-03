@@ -13,6 +13,8 @@ Structure:
 """
 
 import streamlit as st
+import pandas as pd
+from pathlib import Path
 
 # Local modules — src/ is on the path because it sits next to app.py
 from src.data_loader import load_placeholder_data
@@ -34,10 +36,14 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Load custom CSS from assets/style.css
+# Load custom CSS from assets/style.css (robust path + error handling)
 # ---------------------------------------------------------------------------
-with open("assets/style.css") as f:
-    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+css_path = Path(__file__).parent / "assets" / "style.css"
+try:
+    css = css_path.read_text()
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+except Exception as e:
+    st.error(f"Could not load CSS at {css_path}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +68,7 @@ with st.sidebar:
     # Primary page selector
     page = st.radio(
         "Navigate to",
-        options=["The Story", "Explore the Data", "What If?"],
+        options=["Datasets (processed)", "The Story", "Explore the Data", "What If?"],
         index=0,
         key="nav_page",
     )
@@ -353,6 +359,51 @@ def page_what_if() -> None:
 
 
 # ===========================================================================
+# PAGE 4 — Datasets (processed) [temporary, for data review]
+# ===========================================================================
+
+PROCESSED = Path(__file__).parent / "data" / "processed"
+
+DATASETS = {
+    "Housing Prices — ABS (643202)": PROCESSED / "housing_prices_abs.csv",
+    "Passenger km — BITRE (Table 5.3a-j)": PROCESSED / "passenger_km_bitre.csv",
+}
+
+def page_datasets() -> None:
+    st.header("Datasets (processed)")
+    st.warning(
+        "⚠️ **Work in progress.** These are the original extracted datasets — "
+        "they still need to be cleaned (handle missing values, normalise units, "
+        "standardise city names) and joined into a single analytical dataset "
+        "before they can be used in the visualisations.",
+        icon=None,
+    )
+
+    for label, path in DATASETS.items():
+        st.subheader(label)
+        if not path.exists():
+            st.warning(f"File not found: `{path}`")
+            continue
+
+        df_preview = pd.read_csv(path)
+
+        col_left, col_right = st.columns([3, 1])
+        with col_left:
+            st.caption(f"`{path.name}` — {len(df_preview):,} rows × {len(df_preview.columns)} columns")
+        with col_right:
+            st.download_button(
+                label="Download CSV",
+                data=df_preview.to_csv(index=False).encode(),
+                file_name=path.name,
+                mime="text/csv",
+                key=f"dl_{path.stem}",
+            )
+
+        st.dataframe(df_preview, use_container_width=True, height=400)
+        st.divider()
+
+
+# ===========================================================================
 # Router — render the selected page
 # ===========================================================================
 
@@ -362,3 +413,5 @@ elif page == "Explore the Data":
     page_explore_data()
 elif page == "What If?":
     page_what_if()
+elif page == "Datasets (processed)":
+    page_datasets()
