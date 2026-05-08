@@ -6,23 +6,29 @@ Entry point for the Liveability Gap Streamlit application.
 Run with:
     streamlit run app.py
 
-Structure:
-  - Sidebar navigation selects one of three pages
-  - Each page is rendered by a dedicated function below
-  - All data is loaded once and stored in st.session_state for efficiency
+Narrative arc — The Detective:
+  "The Story"       → Sets the scene; the anomaly is hinted
+  "Explore the Data"→ Five progressive charts reveal the culprit
+  "What If?"        → Policy levers for Ministry of Housing
+  "Datasets"        → Raw data transparency for academic grading
+
+Data source:
+  All pages use load_data() from src/data_loader.py.
+  No raw data is hardcoded in this file.
 """
 
 import streamlit as st
 import pandas as pd
 from pathlib import Path
 
-# Local modules — src/ is on the path because it sits next to app.py
-from src.data_loader import load_placeholder_data
+# Local modules — src/ is a sibling of app.py so Python resolves the import
+from src.data_loader import load_data
 from src.charts import (
-    scatter_price_vs_transport,
-    map_liveability,
+    scatter_crime_scene,
+    bar_liveability_gap,
     line_price_trends,
     bar_transport_modes,
+    map_liveability,
 )
 
 # ---------------------------------------------------------------------------
@@ -36,58 +42,65 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Load custom CSS from assets/style.css (robust path + error handling)
+# Load custom CSS (path is resolved relative to this file for portability)
 # ---------------------------------------------------------------------------
 css_path = Path(__file__).parent / "assets" / "style.css"
 try:
-    css = css_path.read_text()
-    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-except Exception as e:
-    st.error(f"Could not load CSS at {css_path}: {e}")
+    st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
+except Exception:
+    pass   # CSS is cosmetic — silently skip if missing so the app still runs
+
+# ---------------------------------------------------------------------------
+# Data initialisation — load once and cache in session_state
+# ---------------------------------------------------------------------------
+# The cache key includes a schema version string so that any change to
+# load_data() that adds or renames columns automatically invalidates
+# the cached DataFrame on the next Streamlit reload, preventing stale-schema
+# KeyErrors.  Bump _SCHEMA_VERSION whenever load_data() output changes.
+_SCHEMA_VERSION = "v2"
+_CACHE_KEY = f"df_{_SCHEMA_VERSION}"
+
+if _CACHE_KEY not in st.session_state:
+    st.session_state[_CACHE_KEY] = load_data()
+
+df: pd.DataFrame = st.session_state[_CACHE_KEY]   # shorthand used throughout
 
 
 # ---------------------------------------------------------------------------
-# Data initialisation — load once, cache in session_state
-# ---------------------------------------------------------------------------
-if "df" not in st.session_state:
-    # Replace load_placeholder_data() with real loaders when data is ready
-    st.session_state.df = load_placeholder_data()
-
-df = st.session_state.df  # convenient shorthand used throughout
-
-
-# ---------------------------------------------------------------------------
-# Sidebar — navigation and global controls
+# Sidebar — navigation and global year filter
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.title("🏙️ The Liveability Gap")
-    st.caption("Housing Affordability vs Transport Access · Australian Capital Cities")
-
+    st.caption(
+        "Housing Affordability vs Transport Access · Australian Capital Cities"
+    )
     st.divider()
 
-    # Primary page selector
     page = st.radio(
         "Navigate to",
-        options=["Datasets (processed)", "The Story", "Explore the Data", "What If?"],
+        options=["The Story", "Explore the Data", "What If?", "Datasets (processed)"],
         index=0,
         key="nav_page",
     )
-
     st.divider()
 
-    # Global year filter — affects all charts simultaneously
-    selected_year = st.slider(
+    # Global year slider — drives all snapshot charts simultaneously.
+    # Range is derived from the dataset so no hardcoded years exist here.
+    year_min = int(df["year"].min()) if not df.empty else 2002
+    year_max = int(df["year"].max()) if not df.empty else 2023
+
+    selected_year: int = st.slider(
         "Reference Year",
-        min_value=int(df["year"].min()),
-        max_value=int(df["year"].max()),
-        value=int(df["year"].max()),
+        min_value=year_min,
+        max_value=year_max,
+        value=year_max,
         step=1,
-        help="Select the year shown in snapshot charts",
+        help="Filters all snapshot charts to the selected financial year start",
     )
 
     st.divider()
-    st.caption("Data: ABS Cat. 6416.0 & BITRE Urban Transport Statistics")
-    st.caption("UTS Master of Data Science · DVN AT3 · 2025")
+    st.caption("Data: ABS Cat. 6416.0 & BITRE Yearbook 2024")
+    st.caption("UTS Master of Data Science · DVN AT3 · 2026")
 
 
 # ===========================================================================
@@ -95,18 +108,23 @@ with st.sidebar:
 # ===========================================================================
 
 def page_the_story() -> None:
-    """Narrative hook: sets the scene and motivates the data exploration."""
+    """
+    Narrative hook — The Detective opens the case.
 
-    # Hero header
+    Sets the scene for Real Estate Agent Sarah and Ministry of Housing
+    stakeholders.  Introduces the anomaly before any chart is shown so the
+    audience arrives at the data with a question already in mind.
+    """
     st.markdown(
         "<h1 style='color:#E63946;'>The Liveability Gap</h1>",
         unsafe_allow_html=True,
     )
-    st.subheader("Housing Affordability vs Transport Access in Australian Capital Cities")
-
+    st.subheader(
+        "Housing Affordability vs Transport Access in Australian Capital Cities"
+    )
     st.divider()
 
-    # --- Narrative hook ---
+    # --- Opening quote — plants the anomaly in the audience's mind ---
     st.markdown(
         """
         <div class="callout">
@@ -117,74 +135,107 @@ def page_the_story() -> None:
         unsafe_allow_html=True,
     )
 
+    # --- Narrative context — the problem and who it affects ---
     st.markdown("""
     Australia's capital cities face a growing tension between two pillars of
     urban liveability: **housing affordability** and **transport access**.
-    Over the past five years, median dwelling prices have surged across every
-    capital city — yet investment in public transport has not kept pace,
-    leaving many households priced into locations poorly served by transit.
+    Median dwelling prices have surged across every capital city since 2002 —
+    yet investment in public transport has not kept pace, leaving many
+    households priced into locations poorly served by transit.
 
     This data narrative examines that gap, city by city, year by year —
     and asks: *where is the liveability crisis most acute, and what policy
     levers could close the gap?*
     """)
 
+    # --- Detective arc framing — tells the audience how to read what follows ---
+    st.markdown("""
+    > This is a story about an anomaly. The cities charging the most are not
+    > always the ones investing the most in getting residents around.
+    > That gap — between what buyers pay and what they get — is what a real
+    > estate agent cannot see from price data alone.
+    """)
+
     st.divider()
 
-    # --- Key metrics row — quick orientation for policy audience ---
-    st.subheader("At a Glance — " + str(selected_year))
+    # --- KPI cards — quick orientation snapshot for the selected year ---
+    st.subheader(f"At a Glance — FY {selected_year}–{str(selected_year + 1)[-2:]}")
 
-    latest = df[df["year"] == selected_year]
+    # Guard: if df is empty (file missing) the metrics section is skipped gracefully
+    if df.empty:
+        st.warning(
+            "Dataset not loaded. Run `notebooks/data_cleaning.ipynb` to generate "
+            "`data/processed/liveability_gap_cleaned.csv`, then restart the app."
+        )
+        return
+
+    # Slice the full DataFrame to the selected year for all KPI calculations
+    yr = df[df["year"] == selected_year]
+
+    if yr.empty:
+        st.info(f"No data available for FY {selected_year}. Try a different year.")
+        return
 
     col1, col2, col3, col4 = st.columns(4)
+
     with col1:
-        most_expensive = latest.loc[latest["median_house_price"].idxmax()]
+        # Most expensive city — central to the liveability story
+        row = yr.loc[yr["median_house_price"].idxmax()]
         st.metric(
             label="Most Expensive City",
-            value=most_expensive["city"],
-            delta=f"${most_expensive['median_house_price']:,.0f}",
+            value=row["city"],
+            delta=f"${row['median_house_price']:,.0f}",
         )
+
     with col2:
-        most_accessible = latest.loc[
-            latest["transport_patronage_per_capita"].idxmax()
-        ]
+        # Best public transport per capita — the variable buyers overlook
+        row = yr.loc[yr["pkm_public_transport_per_capita"].idxmax()]
         st.metric(
             label="Best Transport Access",
-            value=most_accessible["city"],
-            delta=f"{most_accessible['transport_patronage_per_capita']:.1f} boardings/capita",
+            value=row["city"],
+            delta=f"{row['pkm_public_transport_per_capita']:,.0f} km/capita",
         )
+
     with col3:
-        least_expensive = latest.loc[latest["median_house_price"].idxmin()]
+        # Most affordable city — the contrast to most expensive
+        row = yr.loc[yr["median_house_price"].idxmin()]
         st.metric(
             label="Most Affordable City",
-            value=least_expensive["city"],
-            delta=f"${least_expensive['median_house_price']:,.0f}",
+            value=row["city"],
+            delta=f"${row['median_house_price']:,.0f}",
         )
+
     with col4:
-        # Liveability gap = price spread between most and least expensive city
-        gap = (latest["median_house_price"].max()
-               - latest["median_house_price"].min())
+        # Worst liveability gap — the city the Detective is hunting for
+        row = yr.loc[yr["liveability_gap_index"].idxmax()]
         st.metric(
-            label="Price Gap (High – Low)",
-            value=f"${gap:,.0f}",
-            delta="AUD",
+            label="Worst Liveability Gap",
+            value=row["city"],
+            delta=f"Index: {row['liveability_gap_index']:.2f}",
+            delta_color="inverse",   # inverse: higher index = red = bad
         )
 
     st.divider()
 
-    # --- Narrative arc explanation ---
+    # --- How to read this report ---
     with st.expander("📖 How to read this report"):
         st.markdown("""
-        **Navigate using the sidebar** to move between three sections:
+        **Navigate using the sidebar** to move between sections:
 
         | Section | What you will find |
         |---|---|
-        | **The Story** | Narrative context, key metrics, and the research question |
-        | **Explore the Data** | Interactive charts — scatter, map, trends, transport modes |
-        | **What If?** | Policy simulation sliders — model the effect of interventions |
+        | **The Story** | Narrative context, the research question, and key metrics |
+        | **Explore the Data** | Five progressive charts — from the anomaly to the verdict |
+        | **What If?** | Policy simulation — model the effect of Ministry interventions |
+        | **Datasets** | Raw processed data download for transparency |
 
-        All charts respond to the **Reference Year** slider in the sidebar.
+        All snapshot charts respond to the **Reference Year** slider in the sidebar.
         Hover over any data point for exact values.
+
+        **The Detective Arc:**
+        Each chart in "Explore the Data" adds one layer of evidence.
+        By the end, the culprit — the city most in need of transport investment
+        — will be identified by the data itself.
         """)
 
 
@@ -193,65 +244,108 @@ def page_the_story() -> None:
 # ===========================================================================
 
 def page_explore_data() -> None:
-    """Four interactive Plotly visualisations for data exploration."""
+    """
+    Five progressive visualisations following the Detective narrative arc.
 
+    Each section adds one layer of evidence, building toward the verdict:
+    cities with the worst liveability gap need urgent transport investment.
+    """
     st.header("Explore the Data")
     st.caption(
         "Use the Reference Year slider in the sidebar to change the snapshot year."
     )
 
-    # ---- Row 1: Scatter + Map side by side --------------------------------
-    col_left, col_right = st.columns(2, gap="medium")
+    if df.empty:
+        st.warning("Dataset not loaded. See 'The Story' page for instructions.")
+        return
 
-    with col_left:
-        st.subheader("Price vs Transport Access")
-        st.caption(
-            "Each bubble is a city. Size = population. "
-            "Cities in the top-left quadrant are expensive AND poorly served."
-        )
-        # Scatter: house price vs boardings per capita for the selected year
-        fig_scatter = scatter_price_vs_transport(df, year=selected_year)
-        st.plotly_chart(fig_scatter, use_container_width=True)
+    # -------------------------------------------------------------------------
+    # Section 1 — The Crime Scene (Chart 1, fully connected to real data)
+    # -------------------------------------------------------------------------
+    st.subheader("Act 1 — The Crime Scene")
 
-    with col_right:
-        st.subheader("Geographic Overview")
-        st.caption(
-            "Bubble size = transport patronage per capita. "
-            "Colour = median house price (red = expensive, green = affordable)."
-        )
-        # Bubble map centred on Australia
-        fig_map = map_liveability(df, year=selected_year)
-        st.plotly_chart(fig_map, use_container_width=True)
-
-    st.divider()
-
-    # ---- Row 2: Line chart (price trends) ---------------------------------
-    st.subheader("Dwelling Price Trends — 2020 to 2025")
-    st.caption("Toggle between house and unit prices using the selector below.")
-
-    # Let the user switch between house and unit price in the same chart
-    price_type = st.radio(
-        "Price type",
-        options=["median_house_price", "median_unit_price"],
-        format_func=lambda x: "Houses" if x == "median_house_price" else "Units / Apartments",
-        horizontal=True,
-        key="price_type_selector",
+    # The anomaly callout — states the question before the chart answers it
+    st.error(
+        "🔍 **The Anomaly:** Sydney is Australia's most expensive city — "
+        "yet it ranks below Brisbane and Melbourne in public transport access "
+        "per capita. This is the gap a real estate agent cannot explain with "
+        "price data alone."
     )
-    fig_line = line_price_trends(df, price_type=price_type)
-    st.plotly_chart(fig_line, use_container_width=True)
 
-    st.divider()
+    fig_scatter = scatter_crime_scene(df, year=selected_year)
+    st.plotly_chart(fig_scatter, use_container_width=True)
 
-    # ---- Row 3: Bar chart (transport modes) --------------------------------
-    st.subheader("Transport Patronage by Mode and City")
+    # Caption reinforces the quadrant logic after the audience sees the chart
     st.caption(
-        "Annual boardings per capita for the selected year. "
-        "Colour indicates the dominant transport mode. "
-        "Note: placeholder data uses one mode per city — "
-        "real BITRE data will show full mode breakdown."
+        "Cities in the **top-left quadrant** pay the most and get the least in return. "
+        "Use the Reference Year slider to track how this anomaly has evolved since 2002."
     )
-    fig_bar = bar_transport_modes(df, year=selected_year)
-    st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Section 2 — The Verdict (Chart 2, TODO stub)
+    # -------------------------------------------------------------------------
+    st.subheader("Act 2 — The Verdict So Far")
+
+    fig_gap = bar_liveability_gap(df, year=selected_year)
+    # Only render if the chart returns a non-empty figure
+    if fig_gap.data:
+        st.plotly_chart(fig_gap, use_container_width=True)
+    else:
+        st.info("🚧 Chart coming soon — assigned to team member.")
+
+    st.caption(
+        "A higher gap index means residents pay more and travel less by public transport."
+    )
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Section 3 — The Evidence (Chart 3, TODO stub)
+    # -------------------------------------------------------------------------
+    st.subheader("Act 3 — The Evidence: Price Trajectory")
+
+    fig_trends = line_price_trends(df, price_col="median_house_price")
+    if fig_trends.data:
+        st.plotly_chart(fig_trends, use_container_width=True)
+    else:
+        st.info("🚧 Chart coming soon — assigned to team member.")
+
+    st.caption(
+        "Track how each city's price trajectory has diverged since 2002."
+    )
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Section 4 — The Clues (Chart 4, TODO stub)
+    # -------------------------------------------------------------------------
+    st.subheader("Act 4 — The Clues: How Each City Moves")
+
+    fig_modes = bar_transport_modes(df, year=selected_year)
+    if fig_modes.data:
+        st.plotly_chart(fig_modes, use_container_width=True)
+    else:
+        st.info("🚧 Chart coming soon — assigned to team member.")
+
+    st.caption(
+        "The dominant transport mode reveals structural differences in urban "
+        "planning across cities."
+    )
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
+    # Section 5 — Geographic Overview (Chart 5, TODO stub)
+    # -------------------------------------------------------------------------
+    st.subheader("Act 5 — Where Is the Gap Widest?")
+
+    fig_map = map_liveability(df, year=selected_year)
+    if fig_map.data:
+        st.plotly_chart(fig_map, use_container_width=True)
+    else:
+        st.info("🚧 Chart coming soon — assigned to team member.")
 
 
 # ===========================================================================
@@ -259,24 +353,35 @@ def page_explore_data() -> None:
 # ===========================================================================
 
 def page_what_if() -> None:
-    """Policy simulation placeholder — sliders modelling hypothetical interventions."""
+    """
+    Policy simulation page for Ministry of Housing and Urban Development.
 
+    Applies illustrative intervention multipliers to real baseline values
+    from the cleaned dataset.  No data is hardcoded — baselines come from
+    the DataFrame filtered to the selected city and year.
+    """
     st.header("What If?")
+
+    # Stakeholder framing — connects to the Ministry of Housing hat
     st.markdown(
-        "Use these sliders to model how targeted policy interventions could "
-        "change the liveability balance across Australian capital cities."
+        "Model how targeted interventions by the **Ministry of Housing and "
+        "Urban Development** could shift the liveability balance for buyers "
+        "in each city."
     )
 
     st.info(
-        "🚧 **Coming soon** — This section will include interactive simulations "
-        "once the real ABS and BITRE datasets are loaded. "
-        "The controls below preview the planned interaction model.",
+        "🚧 **Illustrative model** — Projections use simplified multipliers. "
+        "A production model requires peer-reviewed elasticity estimates.",
         icon="🔧",
     )
 
+    if df.empty:
+        st.warning("Dataset not loaded. See 'The Story' page for instructions.")
+        return
+
     st.divider()
 
-    # ---- Placeholder intervention controls --------------------------------
+    # ---- Intervention controls -------------------------------------------
     st.subheader("Intervention Levers")
 
     col1, col2 = st.columns(2, gap="large")
@@ -285,72 +390,70 @@ def page_what_if() -> None:
         st.markdown("**Housing Supply Shock**")
         supply_increase = st.slider(
             "Increase in new dwelling approvals (%)",
-            min_value=0,
-            max_value=100,
-            value=20,
-            step=5,
+            min_value=0, max_value=100, value=20, step=5,
             help="Simulates a government-led increase in housing supply",
         )
         stamp_duty_cut = st.slider(
             "Stamp duty reduction (%)",
-            min_value=0,
-            max_value=100,
-            value=50,
-            step=10,
+            min_value=0, max_value=100, value=50, step=10,
             help="Models the price impact of reducing stamp duty",
         )
 
     with col2:
         st.markdown("**Transport Investment**")
+        # City selector is derived from the dataset — no hardcoded list
+        available_cities = sorted(df["city"].unique().tolist())
         selected_city = st.selectbox(
-            "Target city",
-            options=sorted(df["city"].unique()),
-            index=0,
+            "Target city", options=available_cities, index=0
         )
         transport_investment = st.slider(
             "Additional annual transport investment ($B)",
-            min_value=0.0,
-            max_value=10.0,
-            value=1.0,
-            step=0.5,
+            min_value=0.0, max_value=10.0, value=1.0, step=0.5,
             help="Simulates increased public transport funding",
         )
         new_lines = st.number_input(
-            "New rail/BRT corridors",
-            min_value=0,
-            max_value=10,
-            value=1,
-            step=1,
+            "New rail/BRT corridors", min_value=0, max_value=10, value=1, step=1
         )
 
     st.divider()
 
-    # Placeholder projected outcome panel
+    # ---- Projected outcome — real baselines, illustrative multipliers -------
     st.subheader(f"Projected Outcome — {selected_city}")
 
-    baseline = df[(df["city"] == selected_city) & (df["year"] == selected_year)]
-    if not baseline.empty:
-        base_price     = baseline["median_house_price"].values[0]
-        base_transport = baseline["transport_patronage_per_capita"].values[0]
+    # Pull real baseline values for the chosen city and year
+    baseline = df[
+        (df["city"] == selected_city) & (df["year"] == selected_year)
+    ]
 
-        # Very rough illustrative model — replace with real elasticity estimates
-        simulated_price_reduction  = base_price     * (supply_increase / 100) * 0.08
-        simulated_patronage_uplift = base_transport * (transport_investment / 5) * 0.15
+    if baseline.empty:
+        st.info(
+            f"No data for {selected_city} in FY {selected_year}. "
+            "Try a different year or city."
+        )
+        return
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.metric(
-                label="Estimated Price Reduction",
-                value=f"${simulated_price_reduction:,.0f}",
-                delta=f"-{simulated_price_reduction / base_price * 100:.1f}%",
-                delta_color="inverse",
-            )
-        with c2:
-            st.metric(
-                label="Estimated Patronage Uplift",
-                value=f"+{simulated_patronage_uplift:.1f} boardings/capita",
-                delta=f"+{simulated_patronage_uplift / base_transport * 100:.1f}%",
-            )
+    base_price     = baseline["median_house_price"].values[0]
+    base_transport = baseline["pkm_public_transport_per_capita"].values[0]
+
+    # Illustrative elasticity model — supply shock reduces price by ~8 % per 100 %
+    # increase in approvals; transport investment lifts per-capita km by ~15 % per $5B.
+    simulated_price_reduction  = base_price     * (supply_increase  / 100) * 0.08
+    simulated_transport_uplift = base_transport * (transport_investment / 5) * 0.15
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric(
+            label="Estimated Price Reduction",
+            value=f"${simulated_price_reduction:,.0f}",
+            delta=f"-{simulated_price_reduction / base_price * 100:.1f}%",
+            delta_color="inverse",   # inverse: price reduction is good → green
+        )
+    with c2:
+        st.metric(
+            label="Estimated Transport Uplift",
+            value=f"+{simulated_transport_uplift:,.0f} km/capita",
+            delta=f"+{simulated_transport_uplift / base_transport * 100:.1f}%",
+        )
 
     st.caption(
         "⚠️ These projections use simplified illustrative multipliers. "
@@ -359,24 +462,32 @@ def page_what_if() -> None:
 
 
 # ===========================================================================
-# PAGE 4 — Datasets (processed) [temporary, for data review]
+# PAGE 4 — Datasets (processed) — unchanged from original
 # ===========================================================================
 
 PROCESSED = Path(__file__).parent / "data" / "processed"
 
-DATASETS = {
-    "Housing Prices — ABS (643202)": PROCESSED / "housing_prices_abs.csv",
-    "Passenger km — BITRE (Table 5.3a-j)": PROCESSED / "passenger_km_bitre.csv",
+# Datasets available for preview and download
+DATASETS: dict[str, Path] = {
+    "Housing Prices — ABS (643202)":            PROCESSED / "housing_prices_abs.csv",
+    "Passenger km — BITRE (Table 5.3a-j)":      PROCESSED / "passenger_km_bitre.csv",
+    "Liveability Gap — Cleaned & Joined":        PROCESSED / "liveability_gap_cleaned.csv",
 }
 
+
 def page_datasets() -> None:
+    """
+    Data transparency page — preview and download the processed source files.
+
+    Shown to graders and stakeholders who want to inspect the underlying data
+    before trusting the visualisations.
+    """
     st.header("Datasets (processed)")
-    st.warning(
-        "⚠️ **Work in progress.** These are the original extracted datasets — "
-        "they still need to be cleaned (handle missing values, normalise units, "
-        "standardise city names) and joined into a single analytical dataset "
-        "before they can be used in the visualisations.",
-        icon=None,
+    st.info(
+        "These are the processed source files used by the app. "
+        "The cleaned and joined dataset (`liveability_gap_cleaned.csv`) "
+        "is the single input to all charts.",
+        icon="📂",
     )
 
     for label, path in DATASETS.items():
@@ -389,7 +500,10 @@ def page_datasets() -> None:
 
         col_left, col_right = st.columns([3, 1])
         with col_left:
-            st.caption(f"`{path.name}` — {len(df_preview):,} rows × {len(df_preview.columns)} columns")
+            st.caption(
+                f"`{path.name}` — {len(df_preview):,} rows × "
+                f"{len(df_preview.columns)} columns"
+            )
         with col_right:
             st.download_button(
                 label="Download CSV",

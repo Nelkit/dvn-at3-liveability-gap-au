@@ -7,7 +7,7 @@
 
 /* Chart containers — add a subtle border */
 .stPlotlyChart {
-    border: 1px solid #2a2a4a;
+    border: 1px solid #D1D5DB;
     border-radius: 8px;
     padding: 4px;
 }
@@ -15,21 +15,21 @@
 /* Section headings */
 h2 {
     color: #E63946;
-    border-bottom: 1px solid #2a2a4a;
+    border-bottom: 1px solid #D1D5DB;
     padding-bottom: 0.4rem;
 }
 
 /* Metric cards */
 [data-testid="stMetric"] {
-    background-color: #16213E;
+    background-color: #F9FAFB;
     border-radius: 8px;
     padding: 1rem;
-    border: 1px solid #2a2a4a;
+    border: 1px solid #E5E7EB;
 }
 
 /* Highlighted text callout */
 .callout {
-    background-color: #16213E;
+    background-color: #FFF1F2;
     border-left: 4px solid #E63946;
     padding: 1rem 1.2rem;
     border-radius: 0 8px 8px 0;

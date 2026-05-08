@@ -1,29 +1,36 @@
 """
 data_loader.py
 --------------
-Responsible for loading and preparing data for the Liveability Gap app.
+Single source of truth for all data loading and transformation in the
+Liveability Gap app.
 
-REAL DATA SOURCES (replace placeholder functions below):
+Real data sources (pre-processed and joined in data/processed/):
   - ABS Residential Property Price Indexes (Cat. 6416.0)
-      URL: https://www.abs.gov.au/statistics/economy/price-indexes-and-inflation/
-             residential-property-price-indexes-eight-capital-cities/latest-release
-      Format: Excel (.xlsx), Table 1 — Residential Property Price Indexes
+      → data/processed/housing_prices_abs.csv
+  - BITRE Urban Public Transport Statistics (Yearbook 2024, Table 5.3)
+      → data/processed/passenger_km_bitre.csv
+  - Cleaned + joined dataset (output of notebooks/data_cleaning.ipynb):
+      → data/processed/liveability_gap_cleaned.csv  ← used by load_data()
 
-  - BITRE Urban Public Transport Statistics
-      URL: https://www.bitre.gov.au/statistics/cities/urban_public_transport
-      Format: Excel (.xlsx), Sheet "Annual Data" — patronage by mode and city
+Primary function: load_data()
+  Reads the cleaned CSV, applies all derived transformations, and returns a
+  single DataFrame consumed by every chart and KPI card in the app.
 
-Replace `load_placeholder_data()` with `load_abs_data()` and
-`load_bitre_data()` once the real files are placed in data/raw/.
+load_placeholder_data() is kept only as a DEPRECATED fallback.
 """
 
+import logging
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# City reference — coordinates used for the bubble map visualisation
+# City reference constants — used by both loaders and chart layers
 # ---------------------------------------------------------------------------
+
+# Geographic centroids — used by the bubble map visualisation
 CITY_COORDS: dict[str, tuple[float, float]] = {
     "Sydney":    (-33.8688, 151.2093),
     "Melbourne": (-37.8136, 144.9631),
@@ -35,163 +42,206 @@ CITY_COORDS: dict[str, tuple[float, float]] = {
     "Canberra":  (-35.2809, 149.1300),
 }
 
-# Dominant transport mode per city — reflects infrastructure character
-DOMINANT_MODE: dict[str, str] = {
-    "Sydney":    "Rail",
-    "Melbourne": "Tram/Rail",
-    "Brisbane":  "Bus",
-    "Adelaide":  "Bus",
-    "Perth":     "Rail",
-    "Hobart":    "Bus",
-    "Darwin":    "Bus",
-    "Canberra":  "Bus",
+# 2024 estimated resident populations (ABS) — denominator for per-capita metrics
+CITY_POPULATIONS: dict[str, int] = {
+    "Sydney":    5_400_000,
+    "Melbourne": 5_200_000,
+    "Brisbane":  2_700_000,
+    "Adelaide":  1_400_000,
+    "Perth":     2_300_000,
+    "Hobart":      240_000,
+    "Darwin":      150_000,
+    "Canberra":    470_000,
 }
 
+# Transport mode columns that constitute "public transport" (excludes private cars)
+PUBLIC_TRANSPORT_MODES: list[str] = [
+    "pkm_heavy_rail",
+    "pkm_light_rail",
+    "pkm_bus",
+    "pkm_ferry",
+]
 
-def load_placeholder_data() -> pd.DataFrame:
+# All per-mode columns available in the cleaned dataset — used by the stacked bar chart
+ALL_MODE_COLS: list[str] = PUBLIC_TRANSPORT_MODES + [
+    "pkm_passenger_cars",
+    "pkm_commercial_vehicles",
+    "pkm_motor_cycles",
+    "pkm_other_active",
+]
+
+# Expected columns in the output DataFrame — guarantees chart compatibility
+EXPECTED_COLUMNS: list[str] = [
+    "city", "year", "financial_year",
+    "median_house_price",
+    "pkm_total", "pkm_public_transport", "pkm_public_transport_per_capita",
+    "pkm_heavy_rail", "pkm_light_rail", "pkm_bus", "pkm_ferry",
+    "pkm_passenger_cars", "pkm_commercial_vehicles", "pkm_motor_cycles",
+    "pkm_other_active",
+    "city_population", "liveability_gap_index", "dominant_mode",
+    "lat", "lon",
+]
+
+
+# ---------------------------------------------------------------------------
+# Primary loader — used by the entire app
+# ---------------------------------------------------------------------------
+
+def load_data() -> pd.DataFrame:
     """
-    Generate synthetic data that mirrors the structure of the real ABS and
-    BITRE datasets.  Every column name and unit here matches what will be
-    present once the real files are loaded — so the chart functions require
-    no changes when the swap happens.
+    Load the cleaned liveability dataset and apply all derived transformations.
+
+    Reads data/processed/liveability_gap_cleaned.csv (produced by
+    notebooks/data_cleaning.ipynb), then computes additional columns
+    required by the app's charts and KPI cards.
 
     Returns
     -------
     pd.DataFrame
-        Columns:
-          city                       (str)   Capital city name
-          year                       (int)   Calendar year 2020–2025
-          median_house_price         (float) Median dwelling price, AUD
-          median_unit_price          (float) Median unit/apartment price, AUD
-          transport_patronage_total  (int)   Annual boardings across all modes
-          population                 (int)   Approximate city population
-          transport_patronage_per_capita (float) boardings / population
-          dominant_mode              (str)   Primary public-transport mode
-          lat / lon                  (float) City centroid coordinates
+        One row per city-year combination. Columns:
+
+        Identifiers
+          city                         str    Capital city name
+          year                         int    Financial year start (e.g. 2002)
+          financial_year               str    FY label (e.g. "2002-03")
+
+        Housing
+          median_house_price           float  Median established house price (AUD)
+
+        Transport — raw modes (billion km/year)
+          pkm_total                    float  All modes combined
+          pkm_heavy_rail               float  Heavy rail
+          pkm_light_rail               float  Light rail
+          pkm_bus                      float  Bus
+          pkm_ferry                    float  Ferry
+          pkm_passenger_cars           float  Private passenger cars
+          pkm_commercial_vehicles      float  Commercial vehicles
+          pkm_motor_cycles             float  Motorcycles
+          pkm_other_active             float  Cycling + e-mobility
+
+        Derived metrics
+          pkm_public_transport         float  Heavy rail + light rail + bus + ferry
+          city_population              int    2024 estimated resident population
+          pkm_public_transport_per_capita float  PT km per person per year
+          liveability_gap_index        float  price_norm − transport_norm in [−1, 1]
+                                              Higher = more expensive AND less connected
+          dominant_mode                str    The PT sub-mode with highest km that row
+
+        Geography
+          lat / lon                    float  City centroid coordinates
+
+    Notes
+    -----
+    If the source file is missing, an empty DataFrame with all expected
+    columns is returned and a warning is logged — the app will not crash.
     """
-    rng = np.random.default_rng(seed=42)  # fixed seed → reproducible charts
+    csv_path = Path(__file__).parent.parent / "data" / "processed" / "liveability_gap_cleaned.csv"
 
-    cities = list(CITY_COORDS.keys())
-    years  = list(range(2020, 2026))
+    try:
+        df = pd.read_csv(csv_path)
+    except FileNotFoundError:
+        logger.warning(
+            "liveability_gap_cleaned.csv not found at %s. "
+            "Returning empty DataFrame — run notebooks/data_cleaning.ipynb first.",
+            csv_path,
+        )
+        # Return an empty but schema-correct DataFrame so the app degrades gracefully
+        return pd.DataFrame(columns=EXPECTED_COLUMNS)
 
-    # Base house prices (AUD) — approximate 2020 medians per city
-    base_house: dict[str, float] = {
-        "Sydney":    1_050_000,
-        "Melbourne":   780_000,
-        "Brisbane":    560_000,
-        "Adelaide":    480_000,
-        "Perth":       510_000,
-        "Hobart":      500_000,
-        "Darwin":      450_000,
-        "Canberra":    700_000,
+    # ------------------------------------------------------------------
+    # Step 1 — Convert price from $'000 to full AUD
+    # ------------------------------------------------------------------
+    # The source CSV stores prices in thousands (e.g. 850 means $850,000).
+    # All dollar displays in the app use full AUD, so we multiply here once.
+    df["median_house_price"] = df["median_house_price_000"] * 1_000
+    df = df.drop(columns=["median_house_price_000"])
+
+    # ------------------------------------------------------------------
+    # Step 2 — Aggregate public transport kilometres
+    # ------------------------------------------------------------------
+    # Sum the four PT modes; fillna(0) handles cities without ferry/light rail
+    # (e.g. Adelaide has no ferry) without propagating NaN into the aggregate.
+    df["pkm_public_transport"] = (
+        df[PUBLIC_TRANSPORT_MODES].fillna(0).sum(axis=1)
+    )
+
+    # ------------------------------------------------------------------
+    # Step 3 — Attach city population
+    # ------------------------------------------------------------------
+    # Population is fixed at 2024 values across all years; this is a
+    # deliberate simplification — we are measuring transport supply, not
+    # demand growth, and 2024 populations give the most relevant per-capita
+    # context for the target audience (current buyers).
+    df["city_population"] = df["city"].map(CITY_POPULATIONS)
+
+    # ------------------------------------------------------------------
+    # Step 4 — Compute per-capita public transport km
+    # ------------------------------------------------------------------
+    # pkm_public_transport is in BILLION km; multiply by 1e9 to get km,
+    # then divide by population to get km per person per year.
+    df["pkm_public_transport_per_capita"] = (
+        (df["pkm_public_transport"] * 1e9) / df["city_population"]
+    )
+
+    # ------------------------------------------------------------------
+    # Step 5 — Compute the Liveability Gap Index
+    # ------------------------------------------------------------------
+    # Normalise both dimensions to [0, 1] across the ENTIRE dataset
+    # (not per year) so the index is comparable across time.
+    #
+    # price_norm:     1 = most expensive city-year in dataset
+    # transport_norm: 1 = best-served city-year in dataset
+    #
+    # index = price_norm - transport_norm
+    #   > 0 → residents pay a premium relative to transport received
+    #   < 0 → well-served relative to price paid
+    #   max possible = +1 (most expensive + worst transport)
+    #   min possible = -1 (cheapest + best transport)
+
+    price     = df["median_house_price"]
+    transport = df["pkm_public_transport_per_capita"]
+
+    price_range     = price.max()     - price.min()
+    transport_range = transport.max() - transport.min()
+
+    # Guard against zero-range edge case (all values identical)
+    price_norm     = (price     - price.min())     / price_range     if price_range     > 0 else 0.0
+    transport_norm = (transport - transport.min()) / transport_range if transport_range > 0 else 0.0
+
+    df["liveability_gap_index"] = price_norm - transport_norm
+
+    # ------------------------------------------------------------------
+    # Step 6 — Derive dominant public transport mode per row
+    # ------------------------------------------------------------------
+    # For each city-year, the dominant PT mode is whichever of the four
+    # PT sub-modes has the highest passenger-km.  This drives colour coding
+    # in the bar chart and hover labels.
+    mode_labels = {
+        "pkm_heavy_rail": "Heavy Rail",
+        "pkm_light_rail": "Light Rail",
+        "pkm_bus":        "Bus",
+        "pkm_ferry":      "Ferry",
     }
+    # idxmax(axis=1) returns the column name of the highest value per row;
+    # fillna handles rows where all PT modes are NaN (fall back to "Bus").
+    df["dominant_mode"] = (
+        df[PUBLIC_TRANSPORT_MODES]
+        .fillna(0)
+        .idxmax(axis=1)
+        .map(mode_labels)
+        .fillna("Bus")
+    )
 
-    # Base unit prices — typically 60–75 % of house price
-    base_unit: dict[str, float] = {c: v * 0.68 for c, v in base_house.items()}
+    # ------------------------------------------------------------------
+    # Step 7 — Attach geographic coordinates
+    # ------------------------------------------------------------------
+    df["lat"] = df["city"].map({c: v[0] for c, v in CITY_COORDS.items()})
+    df["lon"] = df["city"].map({c: v[1] for c, v in CITY_COORDS.items()})
 
-    # Annual growth rates (house, unit) — vary by city to reflect boom/bust
-    growth_rates: dict[str, tuple[float, float]] = {
-        "Sydney":    (0.075, 0.055),
-        "Melbourne": (0.060, 0.045),
-        "Brisbane":  (0.090, 0.075),
-        "Adelaide":  (0.085, 0.070),
-        "Perth":     (0.095, 0.080),
-        "Hobart":    (0.070, 0.060),
-        "Darwin":    (0.040, 0.035),
-        "Canberra":  (0.065, 0.050),
-    }
+    # ------------------------------------------------------------------
+    # Step 8 — Final sort and column selection
+    # ------------------------------------------------------------------
+    df = df[EXPECTED_COLUMNS].sort_values(["city", "year"]).reset_index(drop=True)
 
-    # Base annual public transport boardings (~2020, millions)
-    base_patronage_m: dict[str, float] = {
-        "Sydney":    390.0,
-        "Melbourne": 450.0,
-        "Brisbane":  160.0,
-        "Adelaide":   65.0,
-        "Perth":      95.0,
-        "Hobart":      9.0,
-        "Darwin":      3.5,
-        "Canberra":   18.0,
-    }
+    return df
 
-    # Approximate 2020 populations
-    base_population: dict[str, int] = {
-        "Sydney":    5_300_000,
-        "Melbourne": 5_000_000,
-        "Brisbane":  2_500_000,
-        "Adelaide":  1_400_000,
-        "Perth":     2_100_000,
-        "Hobart":      240_000,
-        "Darwin":      150_000,
-        "Canberra":    450_000,
-    }
-
-    rows = []
-    for city in cities:
-        lat, lon = CITY_COORDS[city]
-        h_rate, u_rate = growth_rates[city]
-
-        for i, year in enumerate(years):
-            # Compound price growth with small random noise
-            noise_h = rng.uniform(0.95, 1.05)
-            noise_u = rng.uniform(0.95, 1.05)
-            house_price = base_house[city] * ((1 + h_rate) ** i) * noise_h
-            unit_price  = base_unit[city]  * ((1 + u_rate) ** i) * noise_u
-
-            # Patronage: COVID dip in 2020–21, recovery 2022–25
-            covid_factor = 0.45 if year == 2020 else (0.60 if year == 2021 else
-                           0.80 if year == 2022 else (0.90 if year == 2023 else
-                           0.96 if year == 2024 else 1.00))
-            patronage_noise = rng.uniform(0.97, 1.03)
-            patronage = int(
-                base_patronage_m[city] * 1_000_000 * covid_factor * patronage_noise
-            )
-
-            pop = int(base_population[city] * (1.015 ** i))  # ~1.5 % growth/yr
-            patronage_per_capita = patronage / pop
-
-            rows.append({
-                "city":                        city,
-                "year":                        year,
-                "median_house_price":          round(house_price, 0),
-                "median_unit_price":           round(unit_price,  0),
-                "transport_patronage_total":   patronage,
-                "population":                  pop,
-                "transport_patronage_per_capita": round(patronage_per_capita, 2),
-                "dominant_mode":               DOMINANT_MODE[city],
-                "lat":                         lat,
-                "lon":                         lon,
-            })
-
-    return pd.DataFrame(rows)
-
-
-# ---------------------------------------------------------------------------
-# Stubs for real data loading — implement once files are in data/raw/
-# ---------------------------------------------------------------------------
-
-def load_abs_data(filepath: str) -> pd.DataFrame:
-    """
-    Load ABS Residential Property Price Indexes from the downloaded Excel file.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to the ABS Cat. 6416.0 Excel file (e.g. 'data/raw/641601.xlsx').
-
-    TODO: implement when real data is available.
-    """
-    raise NotImplementedError("Replace placeholder data with real ABS source.")
-
-
-def load_bitre_data(filepath: str) -> pd.DataFrame:
-    """
-    Load BITRE urban public transport statistics from the downloaded Excel file.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to the BITRE Excel file (e.g. 'data/raw/bitre_urban_transport.xlsx').
-
-    TODO: implement when real data is available.
-    """
-    raise NotImplementedError("Replace placeholder data with real BITRE source.")
