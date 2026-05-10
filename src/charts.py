@@ -312,7 +312,10 @@ def bar_liveability_gap(df: pd.DataFrame, year: int) -> go.Figure:
     ))
 
     fig.update_layout(
-        title=dict(text=f"Act 2 — Liveability Gap Ranking — FY {year}-{str(year+1)[-2:]}", font={"size":16, "color":"#1F2937"}),
+        title=dict(
+            text=f"Act 2 — Liveability Gap Ranking — FY {year}-{str(year + 1)[-2:]}",
+            font={"size": 16, "color": "#1F2937"},
+        ),
         xaxis=dict(title="Liveability Gap Index", range=[0, 1], tickformat=".2f"),
         yaxis=dict(autorange="reversed"),
     )
@@ -382,31 +385,103 @@ def bar_transport_modes(df: pd.DataFrame, year: int) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Chart 5 — Geographic Bubble Map (TODO stub)
+# Chart 5 — Geographic Bubble Map (FULLY IMPLEMENTED)
 # ---------------------------------------------------------------------------
 
 def map_liveability(df: pd.DataFrame, year: int) -> go.Figure:
     """
     Detective Arc — Act 5: Where Is the Gap Widest?
 
-    Bubble map of Australia where each capital city is a bubble.
-    Bubble size = pkm_public_transport_per_capita.
-    Bubble colour = liveability_gap_index (green → red scale).
+    Single tile map of Australia: each capital is a bubble at its centroid.
+    Bubble area encodes public transport km per capita; colour encodes
+    liveability_gap_index using the same `GAP_COLORSCALE` as Act 1 (fixed −1…1).
 
-    # TODO: connect to real data — assigned to [team member]
-    # Expected input columns: city, year, median_house_price,
-    # liveability_gap_index, lat, lon
+    Uses `go.Scattermap` with carto-positron tiles — no Mapbox token required.
 
     Parameters
     ----------
     df   : DataFrame from load_data()
-    year : Financial year start integer
+    year : Financial year start integer (e.g. 2015 = FY 2015-16)
 
     Returns
     -------
     go.Figure
+
+    Expected input columns
+    ----------------------
+    city, year, median_house_price, pkm_public_transport_per_capita,
+    liveability_gap_index, lat, lon
     """
-    # TODO: connect to real data — assigned to [team member]
-    # Expected input columns: city, year, median_house_price,
-    # liveability_gap_index, lat, lon
-    return go.Figure()
+    yr = df[df["year"] == year].copy()
+    if yr.empty:
+        return _apply_defaults(go.Figure())
+
+    max_pt = yr["pkm_public_transport_per_capita"].max()
+    if pd.isna(max_pt) or max_pt <= 0:
+        sizeref = 1.0
+    else:
+        sizeref = 2.0 * float(max_pt) / (55**2)
+
+    fy_label = f"{year}-{str(year + 1)[-2:]}"
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scattermap(
+            lat=yr["lat"],
+            lon=yr["lon"],
+            mode="markers+text",
+            text=yr["city"],
+            textposition="top center",
+            textfont={"color": "#1F2937", "size": 11},
+            marker=dict(
+                size=yr["pkm_public_transport_per_capita"],
+                sizemode="area",
+                sizeref=sizeref,
+                sizemin=10,
+                color=yr["liveability_gap_index"],
+                cmin=-1,
+                cmax=1,
+                colorscale=GAP_COLORSCALE,
+                showscale=True,
+                colorbar=dict(
+                    title=dict(text="Gap Index", font={"color": "#1F2937"}),
+                    tickfont={"color": "#1F2937"},
+                    x=1.02,
+                ),
+            ),
+            customdata=list(
+                zip(
+                    yr["city"],
+                    yr["median_house_price"],
+                    yr["pkm_public_transport_per_capita"],
+                    yr["liveability_gap_index"],
+                )
+            ),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Median House Price: $%{customdata[1]:,.0f}<br>"
+                "Transport km/capita: %{customdata[2]:,.0f}<br>"
+                "Gap Index: %{customdata[3]:.2f}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"🗺️ Act 5 — Geographic Reveal — FY {fy_label}",
+            font={"size": 18, "color": "#1F2937"},
+        ),
+        map=dict(
+            style="carto-positron",
+            center=dict(lat=-25.5, lon=134),
+            zoom=3.15,
+        ),
+        height=520,
+    )
+
+    fig = _apply_defaults(fig)
+    fig.update_layout(margin=dict(l=0, r=10, t=70, b=0))
+
+    return fig

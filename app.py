@@ -337,7 +337,7 @@ def page_explore_data() -> None:
     st.divider()
 
     # -------------------------------------------------------------------------
-    # Section 5 — Geographic Overview (Chart 5, TODO stub)
+    # Section 5 — Geographic Overview (Chart 5)
     # -------------------------------------------------------------------------
     st.subheader("Act 5 — Where Is the Gap Widest?")
 
@@ -346,6 +346,11 @@ def page_explore_data() -> None:
         st.plotly_chart(fig_map, use_container_width=True)
     else:
         st.info("🚧 Chart coming soon — assigned to team member.")
+
+    st.caption(
+        "Larger bubbles = more public transport per person; warmer colours = higher gap index. "
+        "Hover each capital for numbers."
+    )
 
 
 # ===========================================================================
