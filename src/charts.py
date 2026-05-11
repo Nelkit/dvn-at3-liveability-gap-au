@@ -326,8 +326,6 @@ def bar_liveability_gap(df: pd.DataFrame, year: int) -> go.Figure:
 # ---------------------------------------------------------------------------
 # Chart 3 — Price Trend Lines (TODO stub)
 # ---------------------------------------------------------------------------
-
-def line_price_trends(df: pd.DataFrame, price_col: str = "median_house_price") -> go.Figure:
     """
     Detective Arc — Act 3: The Evidence.
 
@@ -351,7 +349,86 @@ def line_price_trends(df: pd.DataFrame, price_col: str = "median_house_price") -
     # TODO: connect to real data — assigned to [team member]
     # Expected input columns: city, year, median_house_price
     # Add COVID shading 2020-2022
-    return go.Figure()
+  def line_price_trends(df: pd.DataFrame, price_col: str = "median_house_price") -> go.Figure:
+    """
+    Detective Arc — Act 3: The Evidence.
+
+    Multi-line time-series of median house price from 2002 to latest year,
+    one line per capital city, with COVID shading from 2020–2022.
+    """
+
+    required_cols = {"city", "year", price_col}
+    if df.empty or not required_cols.issubset(df.columns):
+        return _apply_defaults(go.Figure())
+
+    trend_df = df[["city", "year", price_col]].dropna().copy()
+    trend_df = trend_df[trend_df["year"] >= 2002]
+    trend_df = trend_df.sort_values(["city", "year"])
+
+    if trend_df.empty:
+        return _apply_defaults(go.Figure())
+
+    fig = go.Figure()
+
+    for city in sorted(trend_df["city"].unique()):
+        city_df = trend_df[trend_df["city"] == city]
+
+        fig.add_trace(go.Scatter(
+            x=city_df["year"],
+            y=city_df[price_col],
+            mode="lines+markers",
+            name=city,
+            line=dict(
+                color=CITY_COLOURS.get(city, "#6B7280"),
+                width=2.6,
+            ),
+            marker=dict(size=5),
+            customdata=list(zip(city_df["city"], city_df[price_col])),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Year: %{x}<br>"
+                "Median House Price: $%{customdata[1]:,.0f}"
+                "<extra></extra>"
+            ),
+        ))
+
+    # COVID shading band
+    fig.add_vrect(
+        x0=2020,
+        x1=2022,
+        fillcolor="rgba(128,128,128,0.20)",
+        line_width=0,
+        layer="below",
+        annotation_text="COVID period",
+        annotation_position="top left",
+        annotation_font_size=11,
+        annotation_font_color="#4B5563",
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="Act 3 — The Evidence: Capital City House Price Trajectory",
+            font={"size": 18, "color": "#1F2937"},
+        ),
+        xaxis=dict(
+            title="Year",
+            tickmode="linear",
+            dtick=2,
+        ),
+        yaxis=dict(
+            title="Median House Price (AUD)",
+            tickprefix="$",
+            tickformat=",.0f",
+        ),
+        hovermode="x unified",
+        legend=dict(
+            title="City",
+            orientation="v",
+        ),
+        height=560,
+    )
+
+    return _apply_defaults(fig)
 
 
 # ---------------------------------------------------------------------------
