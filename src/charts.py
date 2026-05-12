@@ -512,7 +512,7 @@ def bar_transport_modes(df: pd.DataFrame, year: int) -> go.Figure:
         legend=dict(title="Mode", traceorder="normal"),
         height=480,
     )
-    return go.Figure()
+    return _apply_defaults(fig)
 
 
 # ---------------------------------------------------------------------------
