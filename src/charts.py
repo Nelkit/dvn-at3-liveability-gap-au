@@ -462,6 +462,56 @@ def bar_transport_modes(df: pd.DataFrame, year: int) -> go.Figure:
     # TODO: connect to real data — assigned to [team member]
     # Expected input columns: city, year, pkm_heavy_rail,
     # pkm_light_rail, pkm_bus, pkm_ferry
+    MODES = {
+        "pkm_heavy_rail": ("Heavy Rail", "#E63946"),
+        "pkm_light_rail": ("Light Rail", "#457B9D"),
+        "pkm_bus":        ("Bus",        "#F4A261"),
+        "pkm_ferry":      ("Ferry",      "#2A9D8F"),
+    }
+
+    yr = df[df["year"] == year].copy()
+    if yr.empty:
+        return _apply_defaults(go.Figure())
+
+    # Sort cities by total PT km descending
+    yr["pkm_public_transport"] = yr[list(MODES.keys())].fillna(0).sum(axis=1)
+    yr = yr.sort_values("pkm_public_transport", ascending=True)
+
+    fig = go.Figure()
+
+    for col, (label, colour) in MODES.items():
+        # Convert billion km → km per capita using city_population
+        values = (yr[col].fillna(0) * 1e9) / yr["city_population"]
+
+        fig.add_trace(go.Bar(
+            x=values,
+            y=yr["city"],
+            name=label,
+            orientation="h",
+            marker=dict(color=colour),
+            customdata=list(zip(yr["city"], values)),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                f"{label}: %{{customdata[1]:,.0f}} km/capita"
+                "<extra></extra>"
+            ),
+        ))
+
+    fy_label = f"{year}-{str(year + 1)[-2:]}"
+    fig.update_layout(
+        barmode="stack",
+        title=dict(
+            text=f"Act 4 — The Clues: Transport Mode Mix — FY {fy_label}",
+            font={"size": 18, "color": "#1F2937"},
+        ),
+        xaxis=dict(
+            title="Public Transport km per Capita",
+            tickformat=",",
+        ),
+        yaxis=dict(title="City"),
+        legend=dict(title="Mode", traceorder="normal"),
+        height=480,
+    )
     return go.Figure()
 
 
