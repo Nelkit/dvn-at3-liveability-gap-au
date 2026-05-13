@@ -6,28 +6,26 @@ All Plotly visualisation functions for the Liveability Gap app.
 Each function accepts a DataFrame produced by load_data() and returns a
 plotly.graph_objects.Figure rendered by Streamlit via st.plotly_chart().
 
-Narrative arc — The Detective:
-  Chart 1 (scatter_crime_scene)  → Act 1: The Crime Scene   — the anomaly
-  Chart 2 (bar_liveability_gap)  → Act 2: The Verdict       — ranking the gap
-  Chart 3 (line_price_trends)    → Act 3: The Evidence      — price trajectory
-  Chart 4 (bar_transport_modes)  → Act 4: The Clues         — mode breakdown
-  Chart 5 (map_liveability)      → Act 5: Geographic reveal — where is it worst?
+Narrative arc (The Detective):
+  Chart 1 (scatter_crime_scene): Act 1 The Crime Scene (the anomaly)
+  Chart 2 (bar_liveability_gap): Act 2 The Verdict (ranking the gap)
+  Chart 3 (line_price_trends): Act 3 The Evidence (price trajectory)
+  Chart 4 (bar_transport_modes): Act 4 The Clues (mode breakdown)
+  Chart 5 (map_liveability): Act 5 Geographic reveal (where is it worst?)
 
 Design decisions:
-    - template="plotly_white" so axes/backgrounds match the Streamlit light theme
+  - template="plotly_white" so axes/backgrounds match the Streamlit light theme
   - Shared layout defaults applied via _apply_defaults() for visual consistency
-  - City colours are FIXED across charts — the audience builds a stable visual
-    vocabulary (same city → same colour in every view)
+  - City colours are FIXED across charts: the audience builds a stable visual
+    vocabulary (same city = same colour in every view)
 """
 
 import pandas as pd
 import plotly.graph_objects as go
 
-# ---------------------------------------------------------------------------
-# Shared design constants — mirror the .streamlit/config.toml palette
-# ---------------------------------------------------------------------------
+# Shared design constants: mirror the .streamlit/config.toml palette
 
-# One fixed colour per city — used consistently across all charts
+# One fixed colour per city: used consistently across all charts
 CITY_COLOURS: dict[str, str] = {
     "Sydney":    "#E63946",  # red   — largest, most expensive city
     "Melbourne": "#457B9D",  # blue
@@ -39,7 +37,7 @@ CITY_COLOURS: dict[str, str] = {
     "Canberra":  "#90BE6D",  # green
 }
 
-# Colour scale for the gap index: green (low gap) → yellow → red (high gap)
+# Colour scale for the gap index: green (low gap) to yellow to red (high gap)
 GAP_COLORSCALE = [
     [0.0, "#2EC4B6"],   # teal  — affordable AND well-served
     [0.5, "#FFD166"],   # amber — middle ground
@@ -49,7 +47,7 @@ GAP_COLORSCALE = [
 # App background colour — keeps chart backgrounds flush with the page
 _BG = "#FFFFFF"
 
-# Subtle grid line colour — visible but not distracting on light background
+# Subtle grid line colour: visible but not distracting on light background
 _GRID = "rgba(31,41,55,0.10)"
 
 # Shared figure layout applied to every chart
@@ -83,9 +81,7 @@ def _apply_defaults(fig: go.Figure) -> go.Figure:
     return fig
 
 
-# ---------------------------------------------------------------------------
-# Chart 1 — The Crime Scene scatter (FULLY IMPLEMENTED)
-# ---------------------------------------------------------------------------
+# Chart 1: The Crime Scene scatter (FULLY IMPLEMENTED)
 
 def scatter_crime_scene(df: pd.DataFrame, year: int) -> go.Figure:
     """
@@ -118,28 +114,22 @@ def scatter_crime_scene(df: pd.DataFrame, year: int) -> go.Figure:
     # Filter to the selected financial year only
     yr = df[df["year"] == year].copy()
 
-    # ------------------------------------------------------------------
-    # Reference lines — national medians split the chart into quadrants
-    # ------------------------------------------------------------------
+    # Reference lines: national medians split chart into quadrants
     # We use the median of city values (not population-weighted) so that
     # small cities like Hobart and Darwin are not drowned out by Sydney.
     nat_median_price     = yr["median_house_price"].median()
     nat_median_transport = yr["pkm_public_transport_per_capita"].median()
 
-    # ------------------------------------------------------------------
-    # Bubble sizing — sizeref scales bubbles relative to the largest city
-    # ------------------------------------------------------------------
+    # Bubble sizing: sizeref scales bubbles relative to the largest city
     # Plotly's sizeref formula: sizeref = 2 * max_value / desired_max_px²
     # Using 60 px as max diameter keeps Sydney readable without crowding.
     max_pop  = yr["city_population"].max()
     sizeref  = 2.0 * max_pop / (60 ** 2)
 
-    # ------------------------------------------------------------------
     # Build the scatter trace manually (go.Scatter) so we can set
     # per-point colours from a continuous variable (liveability_gap_index)
-    # while also controlling bubble size per point — px.scatter does not
-    # support both simultaneously without workarounds.
-    # ------------------------------------------------------------------
+    # while also controlling bubble size per point (px.scatter does not
+    # support both simultaneously without workarounds)
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
@@ -182,9 +172,7 @@ def scatter_crime_scene(df: pd.DataFrame, year: int) -> go.Figure:
         ),
     ))
 
-    # ------------------------------------------------------------------
-    # Horizontal reference line — national median house price
-    # ------------------------------------------------------------------
+    # Horizontal reference line: national median house price
     # Dashed so it reads as a reference, not a data series.
     fig.add_hline(
         y=nat_median_price,
@@ -196,9 +184,7 @@ def scatter_crime_scene(df: pd.DataFrame, year: int) -> go.Figure:
         annotation_font={"color": "#1F2937", "size": 10},
     )
 
-    # ------------------------------------------------------------------
-    # Vertical reference line — national median transport per capita
-    # ------------------------------------------------------------------
+    # Vertical reference line: national median transport per capita
     fig.add_vline(
         x=nat_median_transport,
         line_dash="dash",
