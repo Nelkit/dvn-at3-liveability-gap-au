@@ -241,7 +241,7 @@ def scatter_crime_scene(df: pd.DataFrame, year: int) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Chart 2 — Liveability Gap Ranking (TODO stub)
+# Chart 2 — Liveability Gap Ranking
 # ---------------------------------------------------------------------------
 
 def bar_liveability_gap(df: pd.DataFrame, year: int) -> go.Figure:
@@ -250,10 +250,6 @@ def bar_liveability_gap(df: pd.DataFrame, year: int) -> go.Figure:
 
     Horizontal bar chart ranking all capital cities by liveability_gap_index
     for a given year.  High gap (red) = expensive AND poorly served by PT.
-
-    # TODO: connect to real data — assigned to [team member]
-    # Expected input columns: city, year, liveability_gap_index
-    # Colors: #E63946 high gap, #2EC4B6 low gap
 
     Parameters
     ----------
@@ -310,31 +306,9 @@ def bar_liveability_gap(df: pd.DataFrame, year: int) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Chart 3 — Price Trend Lines (TODO stub)
+# Chart 3 — Price Trend Lines
 # ---------------------------------------------------------------------------
-    """
-    Detective Arc — Act 3: The Evidence.
 
-    Multi-line time-series of median house price from 2002 to the latest year,
-    one line per capital city.  A COVID shading band (2020–2022) is added to
-    contextualise the post-pandemic price surge.
-
-    # TODO: connect to real data — assigned to [team member]
-    # Expected input columns: city, year, median_house_price
-    # Add COVID shading 2020-2022
-
-    Parameters
-    ----------
-    df        : DataFrame from load_data()
-    price_col : Column to plot (default "median_house_price")
-
-    Returns
-    -------
-    go.Figure
-    """
-    # TODO: connect to real data — assigned to [team member]
-    # Expected input columns: city, year, median_house_price
-    # Add COVID shading 2020-2022
 def line_price_trends(df: pd.DataFrame, price_col: str = "median_house_price") -> go.Figure:
     """
     Detective Arc — Act 3: The Evidence.
@@ -422,7 +396,7 @@ def line_price_trends(df: pd.DataFrame, price_col: str = "median_house_price") -
 
 
 # ---------------------------------------------------------------------------
-# Chart 4 — Transport Mode Mix (TODO stub)
+# Chart 4 — Transport Mode Mix
 # ---------------------------------------------------------------------------
 
 def bar_transport_modes(df: pd.DataFrame, year: int) -> go.Figure:
@@ -431,10 +405,6 @@ def bar_transport_modes(df: pd.DataFrame, year: int) -> go.Figure:
 
     Stacked horizontal bar showing the transport mode mix (heavy rail, light
     rail, bus, ferry) for each capital city in the selected year.
-
-    # TODO: connect to real data — assigned to [team member]
-    # Expected input columns: city, year, pkm_heavy_rail,
-    # pkm_light_rail, pkm_bus, pkm_ferry
 
     Parameters
     ----------
@@ -445,9 +415,6 @@ def bar_transport_modes(df: pd.DataFrame, year: int) -> go.Figure:
     -------
     go.Figure
     """
-    # TODO: connect to real data — assigned to [team member]
-    # Expected input columns: city, year, pkm_heavy_rail,
-    # pkm_light_rail, pkm_bus, pkm_ferry
     MODES = {
         "pkm_heavy_rail": ("Heavy Rail", "#E63946"),
         "pkm_light_rail": ("Light Rail", "#457B9D"),

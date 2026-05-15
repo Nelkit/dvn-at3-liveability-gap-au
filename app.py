@@ -19,6 +19,7 @@ Data source:
 
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from pathlib import Path
 
 # Local modules — src/ is a sibling of app.py so Python resolves the import
@@ -81,12 +82,16 @@ with st.sidebar:
     year_min = int(df["year"].min()) if not df.empty else 2002
     year_max = int(df["year"].max()) if not df.empty else 2023
 
+    # ADVANCED FEATURE 1 — Context-Aware Filtering
+    # key="selected_year" registers the value in st.session_state so every page,
+    # chart, KPI card, and callout text reads from this single shared source.
     selected_year: int = st.slider(
         "Reference Year",
         min_value=year_min,
         max_value=year_max,
         value=year_max,
         step=1,
+        key="selected_year",   # explicit key so other widgets can read st.session_state.selected_year
         help="Filters all snapshot charts to the selected financial year start",
     )
 
@@ -250,16 +255,46 @@ def page_explore_data() -> None:
     # Section 1: The Crime Scene (Chart 1, fully connected to real data)
     st.subheader("Act 1 — The Crime Scene")
 
-    # The anomaly callout: Canberra is the real outlier in the data
+    # Dynamic anomaly callout — derived from real data for the selected year.
+    # Identifies the city with the worst liveability gap and the city with the
+    # best transport access, so the text is always factually accurate regardless
+    # of which year the slider is set to.
+    yr_data = df[df["year"] == selected_year]
+    worst_row    = yr_data.loc[yr_data["liveability_gap_index"].idxmax()]
+    best_tr_row  = yr_data.loc[yr_data["pkm_public_transport_per_capita"].idxmax()]
+    fy_label     = f"FY {selected_year}-{str(selected_year + 1)[-2:]}"
+
     st.error(
-        "🔍 **The Anomaly:** Canberra is Australia's second most expensive city "
-        "yet its residents travel less by public transport per capita than Perth or Adelaide, "
-        "cities with significantly lower house prices. "
+        f"🔍 **The Anomaly ({fy_label}):** **{worst_row['city']}** has a liveability gap "
+        f"index of **{worst_row['liveability_gap_index']:.2f}** — it ranks among the most "
+        f"expensive cities yet receives far less public transport per capita than "
+        f"**{best_tr_row['city']}** ({best_tr_row['pkm_public_transport_per_capita']:,.0f} km/capita). "
         "This is the gap a real estate agent cannot explain with price data alone."
     )
 
     fig_scatter = scatter_crime_scene(df, year=selected_year)
     st.plotly_chart(fig_scatter, use_container_width=True)
+
+    # ADVANCED FEATURE 2 — Visual Tooltips and Data-Driven Modals
+    # st.expander reveals the full 8-city ranked table computed from the real
+    # DataFrame for the selected year, turning the expandable into a genuine
+    # insight layer rather than static documentation.
+    with st.expander(f"See full city rankings for {fy_label}"):
+        ranking = (
+            yr_data[["city", "median_house_price", "pkm_public_transport_per_capita", "liveability_gap_index"]]
+            .sort_values("liveability_gap_index", ascending=False)
+            .reset_index(drop=True)
+        )
+        ranking.index += 1
+        ranking.columns = ["City", "Median House Price (AUD)", "PT km / Capita", "Gap Index"]
+        ranking["Median House Price (AUD)"] = ranking["Median House Price (AUD)"].map("${:,.0f}".format)
+        ranking["PT km / Capita"]           = ranking["PT km / Capita"].map("{:,.0f}".format)
+        ranking["Gap Index"]                = ranking["Gap Index"].map("{:.3f}".format)
+        st.dataframe(ranking, use_container_width=True)
+        st.caption(
+            "Gap Index = normalised house price minus normalised public transport access. "
+            "Higher = more expensive AND less connected. Range: -1 to +1."
+        )
 
     # Caption reinforces the quadrant logic after audience sees chart
     st.caption(
@@ -269,7 +304,7 @@ def page_explore_data() -> None:
 
     st.divider()
 
-    # Section 2: The Verdict (Chart 2, TODO stub)
+    # Section 2: The Verdict
     st.subheader("Act 2 — The Verdict So Far")
 
     fig_gap = bar_liveability_gap(df, year=selected_year)
@@ -285,7 +320,7 @@ def page_explore_data() -> None:
 
     st.divider()
 
-    # Section 3: The Evidence (Chart 3, TODO stub)
+    # Section 3: The Evidence
     st.subheader("Act 3 — The Evidence: Price Trajectory")
 
     fig_trends = line_price_trends(df, price_col="median_house_price")
@@ -300,7 +335,7 @@ def page_explore_data() -> None:
 
     st.divider()
 
-    # Section 4: The Clues (Chart 4, TODO stub)
+    # Section 4: The Clues
     st.subheader("Act 4 — The Clues: How Each City Moves")
 
     fig_modes = bar_transport_modes(df, year=selected_year)
@@ -398,8 +433,11 @@ def page_what_if() -> None:
 
     st.divider()
 
+    # Financial year label for display — reconstructed from the start year integer
+    fy_label = f"FY {selected_year}-{str(selected_year + 1)[-2:]}"
+
     # Projected outcome: real baselines, illustrative multipliers
-    st.subheader(f"Projected Outcome — {selected_city}")
+    st.subheader(f"Projected Outcome — {selected_city} ({fy_label})")
 
     # Pull real baseline values for the chosen city and year
     baseline = df[
@@ -415,13 +453,44 @@ def page_what_if() -> None:
 
     base_price     = baseline["median_house_price"].values[0]
     base_transport = baseline["pkm_public_transport_per_capita"].values[0]
+    base_gap_index = baseline["liveability_gap_index"].values[0]
 
-    # Illustrative elasticity model: supply shock reduces price by ~8% per 100%
-    # increase in approvals; transport investment lifts per-capita km by ~15% per $5B.
-    simulated_price_reduction  = base_price     * (supply_increase  / 100) * 0.08
-    simulated_transport_uplift = base_transport * (transport_investment / 5) * 0.15
+    # ------------------------------------------------------------------
+    # Price model — two levers contribute (illustrative multipliers only):
+    #   Supply shock:   ~8% price reduction per 100% increase in approvals
+    #   Stamp duty cut: ~3% price reduction per 100% stamp duty cut
+    # ------------------------------------------------------------------
+    supply_effect     = base_price * (supply_increase / 100) * 0.08
+    stamp_duty_effect = base_price * (stamp_duty_cut  / 100) * 0.03
+    simulated_price_reduction = supply_effect + stamp_duty_effect
 
-    c1, c2 = st.columns(2)
+    # ------------------------------------------------------------------
+    # Transport model — two levers contribute (illustrative multipliers only):
+    #   Capital investment: ~15% PT km uplift per $5B invested
+    #   New corridors:      ~5% capacity increase per new rail/BRT line
+    #   Cap at 50% total uplift — physically credible ceiling for a single term
+    # ------------------------------------------------------------------
+    investment_effect = base_transport * (transport_investment / 5) * 0.15
+    corridors_effect  = base_transport * (new_lines * 0.05)
+    simulated_transport_uplift = min(
+        investment_effect + corridors_effect,
+        base_transport * 0.50,   # 50% cap prevents physically implausible outputs
+    )
+
+    # Recompute gap index under the simulated scenario so it reflects both levers
+    simulated_price     = base_price     - simulated_price_reduction
+    simulated_transport = base_transport + simulated_transport_uplift
+
+    # Use dataset-wide min/max for normalisation consistency with load_data()
+    p_min, p_max = df["median_house_price"].min(),                df["median_house_price"].max()
+    t_min, t_max = df["pkm_public_transport_per_capita"].min(),   df["pkm_public_transport_per_capita"].max()
+
+    sim_price_norm     = (simulated_price     - p_min) / (p_max - p_min)
+    sim_transport_norm = (simulated_transport - t_min) / (t_max - t_min)
+    simulated_gap_index = sim_price_norm - sim_transport_norm
+
+    # Metric cards — before vs after
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.metric(
             label="Estimated Price Reduction",
@@ -435,10 +504,70 @@ def page_what_if() -> None:
             value=f"+{simulated_transport_uplift:,.0f} km/capita",
             delta=f"+{simulated_transport_uplift / base_transport * 100:.1f}%",
         )
+    with c3:
+        gap_delta = simulated_gap_index - base_gap_index
+        st.metric(
+            label="Gap Index Change",
+            value=f"{simulated_gap_index:.3f}",
+            delta=f"{gap_delta:+.3f}",
+            delta_color="inverse",   # lower gap index = better = green
+        )
+
+    st.divider()
+
+    # ADVANCED FEATURE 3 — What-If Parameterisation
+    # Before/after bar chart visualises the simulated impact across both dimensions.
+    # All baselines come from real data; gap index is recomputed using dataset-wide
+    # min/max for normalisation consistency with load_data().
+    fig_whatif = go.Figure()
+
+    categories   = ["Median House Price (AUD)", "PT km / Capita", "Gap Index"]
+    before_vals  = [base_price,     base_transport,        base_gap_index]
+    after_vals   = [simulated_price, simulated_transport,  simulated_gap_index]
+
+    # Normalise all three metrics to [0,1] for side-by-side readability on one axis
+    # (they have different units: AUD, km, dimensionless index)
+    norm_max = [max(b, a) for b, a in zip(before_vals, after_vals)]
+    before_norm = [v / m if m > 0 else 0 for v, m in zip(before_vals, norm_max)]
+    after_norm  = [v / m if m > 0 else 0 for v, m in zip(after_vals,  norm_max)]
+
+    fig_whatif.add_trace(go.Bar(
+        name="Baseline",
+        x=categories,
+        y=before_norm,
+        marker_color="#457B9D",
+        customdata=list(zip(categories, before_vals)),
+        hovertemplate="<b>Baseline — %{customdata[0]}</b><br>Value: %{customdata[1]:,.2f}<extra></extra>",
+    ))
+    fig_whatif.add_trace(go.Bar(
+        name="Simulated",
+        x=categories,
+        y=after_norm,
+        marker_color="#2EC4B6",
+        customdata=list(zip(categories, after_vals)),
+        hovertemplate="<b>Simulated — %{customdata[0]}</b><br>Value: %{customdata[1]:,.2f}<extra></extra>",
+    ))
+
+    fig_whatif.update_layout(
+        barmode="group",
+        title=f"Baseline vs Simulated Outcome — {selected_city} ({fy_label})",
+        yaxis_title="Normalised value (1 = baseline max)",
+        font={"family": "sans-serif"},
+        legend={"orientation": "h", "y": -0.2},
+        margin={"t": 60, "b": 40},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig_whatif, use_container_width=True)
 
     st.caption(
-        "⚠️ These projections use simplified illustrative multipliers. "
-        "A proper model requires elasticity estimates from peer-reviewed literature."
+        "Chart shows each metric normalised relative to the baseline maximum so all "
+        "three dimensions are visible on one axis. Hover for raw values."
+    )
+
+    st.caption(
+        "Multipliers are illustrative and intended for exploratory use only. "
+        "They are not derived from peer-reviewed sources and should not be used for policy decisions."
     )
 
 
@@ -478,13 +607,15 @@ def page_about() -> None:
         st.markdown("""
         ### Team
 
-        - Nelkit Chavez
-        - Saurabh Sabharwal
-        - Nipun Mudgal
-        - Raunak Dhirajkumar Singh
-        - Shriram Gajanan Kulkarni
-        - Sheshan Munusamy Neelavathi
-        - Masaki
+        | Name | Role |
+        |---|---|
+        | Nelkit Chavez | Architect-Artist |
+        | Saurabh Sabharwal | Analyst-Orator · Presenter |
+        | Nipun Mudgal | Artist-Analyst-Orator |
+        | Raunak Dhirajkumar Singh | Artist-Analyst-Orator |
+        | Shriram Gajanan Kulkarni | Architect-Artist-Analyst-Orator · Presenter |
+        | Sheshan Munusamy Neelavathi | Artist-Architect |
+        | Masaki | Orator |
 
         ### Narrative Design
 
