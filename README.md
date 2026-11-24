@@ -14,7 +14,7 @@
 
 A data narrative built with Streamlit and Plotly that examines the growing
 tension between housing affordability and public transport access across
-Australia's eight capital cities from 2001 to 2023.
+Australia's eight capital cities from 2020 to 2025.
 
 The narrative follows **The Detective arc**: the app opens with a data anomaly
 (the "crime scene"), then progressively reveals the culprit variable through
